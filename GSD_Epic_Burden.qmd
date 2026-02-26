@@ -1,0 +1,209 @@
+---
+title: "GSD EHR Burden Analysis"
+author: "JP Giliberto"
+format: dashboard
+orientation: columns
+---
+
+```{r}
+#| eval: false
+# load, rectangularize and export
+library(rjson)
+library(tidyverse)
+library (lubridate)
+library(gt)
+
+filenamesignal <- list.files("C:/Users/jpgil/OneDrive/Research - Primary/Epic/GSD/JSON Files", pattern="*.json", full.names=TRUE) # this should give you a character vector, with each file name represented by an entry
+
+PEP <- lapply(filenamesignal, function(x) fromJSON(file=x))
+
+PEP1 <- tibble(PEP) |> 
+   unnest_longer(PEP) |> 
+  filter(PEP_id=="Data")
+
+RawSignalData <- PEP1|> 
+  unnest_auto(PEP) |> 
+  unnest_wider(PEP) |> 
+    select(-PEP_id)
+
+ExportSignalData <- RawSignalData |> 
+  select(1,3,9:14)
+
+write.csv(ExportSignalData,"Signal Data GSD.csv")
+
+GSDFaculty <- RawSignalData |> 
+  group_by(`Clinician Name`, `EMP CID`) |> 
+  count()
+
+write.csv(GSDFaculty,"GSD Faculty.csv")
+
+```
+
+```{r}
+#|code-fold: true
+#|warning: false
+
+#loading standard packages for data wrangle and visualization. JPG just commented out packages I don't think we will use. 
+library (tidyverse)
+library(readr)
+library (lubridate)
+library(readxl)
+library(forcats)
+library(scales)
+library(ggthemes)
+library(ggrepel)
+library(janitor)
+library(gt)
+#library(ggridges)
+library(lme4)
+library(lmerTest)
+library(broom.mixed)
+library(fuzzyjoin)
+#library(ggsignif)
+
+#signal data raw with dates
+SignalRaw1 <- read_csv("Signal Data GSD.csv") |> 
+  select (ID = `EMP CID`, Name = `Clinician Name`, StartDate = `Reporting Period Start Date`, Metric:Value)
+
+#eliminate months where the provider did not see more than a threshold (at least 20). 25 of 778 (3.2%) provider months eliminated
+KeyApptsPerMo <- SignalRaw1 |> 
+  filter(Metric == "Appointments per Day") |> 
+  select(ID,StartDate,Numerator) |> 
+  mutate(ThresholdAppt = Numerator >15) |>  
+  #count(ThresholdAppt) |> 
+  select(-Numerator)
+
+SignalRaw <- SignalRaw1 |> 
+  left_join(KeyApptsPerMo) |> 
+  filter(ThresholdAppt) |> 
+  select(-ThresholdAppt)
+
+key_GSDFaculty <- read_csv("GSD Faculty.csv") |> 
+  rename(ID = `EMP CID`) |> 
+  mutate(GenderRank = str_c(Gender, Rank, sep = " "))
+
+KeyDenominator<- SignalRaw |> 
+  select(ID,StartDate,Metric, Numerator, Denominator) |>
+  mutate(DenomUnits = case_when(str_detect(Metric, "Time in Notes per Appointment") ~ "per Appointment",
+                                 str_detect(Metric, "Time in System per Day") ~ "per Day with a Login",
+                                 str_detect(Metric, "Time On Unscheduled Days") ~ "per Unscheduled Day",
+                                str_detect(Metric, "Appointments per Day") ~ "per Scheduled Day",
+                                 T ~ NA)) |> 
+  filter(!is.na(DenomUnits)) |> 
+  group_by(ID,StartDate, DenomUnits) |> 
+  summarise(denom_max = max(Denominator, na.rm = T)) |> 
+  pivot_wider(names_from = DenomUnits,values_from = denom_max)
+
+ApptPerTypicalGSDClinic <-  12
+```
+
+# TOTAL SYSTEM BURDEN
+
+## Column {width=25%}  
+
+```{r}
+
+TotalSystemTimeMeans <- SignalRaw |> 
+  filter(Metric == "Time in System per Day") |> 
+  left_join(KeyDenominator) |> 
+  select(Name, ID,StartDate, Numerator, `per Appointment`) |> 
+  mutate(value = (Numerator/`per Appointment`)/60*ApptPerTypicalGSDClinic) |> 
+  left_join(key_GSDFaculty) |> 
+  group_by(GenderRank) |> 
+  summarise(`Mean Total Time in Epic (hr)` = round(mean(value, na.rm =T),1)) |> 
+  gt()
+
+TotalSystemTimeMeans
+  
+```
+## Column {width=75%} 
+
+```{r}
+
+TotalSystemTime <- SignalRaw |> 
+  filter(Metric == "Time in System per Day") |> 
+  left_join(KeyDenominator) |> 
+  select(Name, ID,StartDate, Numerator, `per Appointment`) |> 
+  mutate(value = (Numerator/`per Appointment`)/60*ApptPerTypicalGSDClinic) |> 
+  left_join(key_GSDFaculty) |> 
+  select(ID, StartDate, GenderRank, value)
+
+plot_data <- TotalSystemTime %>%
+  filter(!is.na(value) & value <15 ) 
+
+
+ggplot(plot_data, aes(x = GenderRank, y = value, fill = GenderRank)) +
+  
+  # Distribution shape
+  geom_violin(alpha = 0.6, trim = T) +
+  
+  # Quartiles + median
+  geom_boxplot(width = 0.1, outlier.color = "red", alpha = 0.8) +
+  scale_fill_manual(values = c("lightpink1","lightpink2", "lightpink3", "royalblue1", "royalblue3","royalblue4" ))+
+  labs(
+    title = "Total Epic Sytem Time per Day by Gender and Rank",
+    x = "Gender and Academic Rank",
+    y = "Mean hrs in System Per Clinic Day"
+  ) +
+  
+  theme_classic() +
+  theme(
+    legend.position = "none",
+    plot.title = element_text(size = 14, face = "bold")
+  )
+
+```
+# AMBULATORY TIME BURDEN
+
+## Column {width=25%} 
+
+```{r}
+
+AmbTimeMeans <- SignalRaw |> 
+  filter(str_detect(Metric,"per Appointment") & str_detect(Metric,"Time")) |> 
+  group_by(ID,StartDate) |> 
+  summarise(TotalAmb = (sum(Value, na.rm = F)/60*ApptPerTypicalGSDClinic)) |> 
+  left_join(key_GSDFaculty) |> 
+  group_by(GenderRank) |> 
+  summarise(`Mean Amb Time in Epic (hr)` = round(mean(TotalAmb, na.rm =T),1)) |> 
+  gt()
+
+AmbTimeMeans
+```
+## Column {width=75%} 
+
+```{r}
+AmbTime <- SignalRaw |> 
+  filter(str_detect(Metric,"per Appointment") & str_detect(Metric,"Time")) |> 
+  group_by(ID,StartDate) |> 
+  summarise(value = (sum(Value, na.rm = F)/60*ApptPerTypicalGSDClinic)) |> 
+  left_join(key_GSDFaculty) |> 
+  select(ID, StartDate, GenderRank, value)
+
+plot_data <- TotalSystemTime %>%
+  filter(!is.na(value) & value <15 ) 
+
+ggplot(plot_data, aes(x = GenderRank, y = value, fill = GenderRank)) +
+  
+  # Distribution shape
+  geom_violin(alpha = 0.6, trim = T) +
+  
+  # Quartiles + median
+  geom_boxplot(width = 0.1, outlier.color = "red", alpha = 0.8) +
+  scale_fill_manual(values = c("lightpink1","lightpink2", "lightpink3", "royalblue1", "royalblue3","royalblue4" ))+
+  labs(
+    title = "Total Ambulatory Time per Day by Gender and Rank",
+    x = "Gender and Academic Rank",
+    y = "Mean hrs in System Per Clinic Day"
+  ) +
+  
+  theme_classic() +
+  theme(
+    legend.position = "none",
+    plot.title = element_text(size = 14, face = "bold")
+  )
+
+```
+
+
+
