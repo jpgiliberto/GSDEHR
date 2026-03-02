@@ -318,4 +318,60 @@ ggplot(df, aes(x = GenderRank, y = Value, fill = Metric)) +
 
 ```
 
+# Help with Orders
+
+## Model - {width = 50%}
+```{r}
+#| title: "Increase Odds (OR) of Help based on reference Female Assistants"
+helpVARs <- c("Note Contribution Source - Text Written by Others", "Orders with Team Contributions")
+
+HelpDataRaw <- SignalRaw |> 
+  filter(Metric=="Orders with Team Contributions") |> 
+  left_join(key_GSDFaculty) |> 
+  mutate(HelpwOrder =  Value > 0.5 )
+
+
+HelpDataModel <- HelpDataRaw |> 
+    select(Gender,Rank,StartDate,HelpwOrder)
+
+helpo_glm <- glm(HelpwOrder ~ Rank + Gender, family = binomial,data = HelpDataModel)
+
+result_helpo<- cbind( Category = "Help w Orders", tidy(helpo_glm), confint.lm(helpo_glm))
+
+result_helpo <- result_helpo %>%
+   mutate(
+    across(
+      where(is.numeric) & !all_of("p.value"),
+      ~ round(.x, 2)
+    )
+  )
+
+outpt_helpo <- result_helpo |> 
+  select(term, OR = estimate, 7:8,p.value) |> 
+  gt()
+  
+outpt_helpo
+
+```
+
+## Graph - {width = 50%}
+```{r}
+#| title: "Percent of Orders from Team Members"
+helpVARs <- c("Note Contribution Source - Text Written by Others", "Orders with Team Contributions")
+
+HelpDataRaw <- SignalRaw |> 
+  filter(Metric=="Orders with Team Contributions") |> 
+  left_join(key_GSDFaculty) |> 
+  mutate(HelpwOrder =  Value > 0.5 )
+
+
+ggplot(HelpDataRaw, aes(x=GenderRank, y= Value, color = GenderRank))+
+  geom_violin(draw_quantiles = 0.5 )+
+  geom_jitter(width = 0.05, height= 0.05, alpha = 0.2)+  
+  scale_y_continuous( "Percent of Orders from Team Members",
+    labels = scales::label_percent(accuracy = 1)
+  ) +
+  scale_color_manual(values = c("lightpink2","lightpink3", "lightpink4", "royalblue2", "royalblue4","navy" ))+
+  xlab("")+
+  theme_minimal()
 ```
