@@ -203,7 +203,119 @@ ggplot(plot_data, aes(x = GenderRank, y = value, fill = GenderRank)) +
     plot.title = element_text(size = 14, face = "bold")
   )
 
+
+```
+# Time in EHR by Activity
+
+##  Column - Table Tactivity {width=50%} 
+```{r}
+#| title: "Mean Time in Activity (hr) per Full Clinic"
+
+ByActivityMeans <- SignalRaw |> 
+  filter(str_detect(Metric,"per Appointment") & str_detect(Metric,"Time")) |> 
+  mutate(TimeInActivity = round((Value/60*ApptPerTypicalGSDClinic),2)) |> 
+  select(ID,StartDate,Metric, TimeInActivity) |> 
+  left_join(key_GSDFaculty) |> 
+  group_by(Metric,GenderRank) |> 
+  summarise(`Mean Time in Acivity (hr)` = round(mean(TimeInActivity, na.rm =T),1)) |>
+  pivot_wider(names_from = "Metric",values_from = `Mean Time in Acivity (hr)`) |> 
+  gt() |> 
+  #tab_header(title = md("Hrs per 16 Appointment Clinc (lower = better)")) |> 
+  data_color(
+    method = "numeric",
+    palette = c("aquamarine", "wheat", "pink")) |> 
+  cols_align(
+    align = "center",
+    columns = everything()) 
+  
+    #IMPORTANT: reverse so low=green, high=re
+
+ByActivityMeans
+
 ```
 
+##  Column - Graph Tactivity {width=50%} 
+```{r}
+#| title: "Mean Time in Activity (hr) per Full Clinic"
+
+ByActivityMeansGraph <- SignalRaw |> 
+  filter(str_detect(Metric,"per Appointment") & str_detect(Metric,"Time")) |> 
+  mutate(TimeInActivity = round((Value/60*ApptPerTypicalGSDClinic),2)) |> 
+  select(ID,StartDate,Metric, TimeInActivity) |> 
+  left_join(key_GSDFaculty) |> 
+  group_by(Metric,GenderRank) |> 
+  summarise( value = round(mean(TimeInActivity, na.rm =T),1)) 
 
 
+# ---- 0) Ensure expected column names ----
+# If your columns are named differently, rename them here:
+# ByActivityMeansGraph <- ByActivityMeansGraph %>% rename(Metric = <col1>, GenderRank = <col2>, Value = <col3>)
+
+# ---- 1) Clean & coerce Value to numeric (handles things like "0.s") ----
+ByActivityMeansGraph_clean <- ByActivityMeansGraph %>%
+  mutate(
+    Value = as.character(value),
+    Value = str_replace_all(value, ",", "."),
+    Value = str_replace(value, "^0\\.s$", "0.5"),  # fix the typo you showed
+    Value = suppressWarnings(as.numeric(value))
+  ) %>%
+  filter(!is.na(Value))
+
+# Ensure clean factor order (adjust to your desired order)
+metric_order <- c(
+  "Time in Orders per Appointment",
+  "Time in Notes per Appointment",
+  "Time in In Basket per Appointment",
+  "Time in Clinical Review per Appointment"
+)
+
+gender_rank_order <- c(
+  "Female Assistant", "Female Associate", "Female Full",
+  "Male Assistant", "Male Associate", "Male Full"
+)
+
+df <- ByActivityMeansGraph_clean %>%
+  mutate(
+    Value = as.numeric(Value),
+    Metric = factor(Metric, levels = metric_order),
+    GenderRank = factor(GenderRank, levels = gender_rank_order)
+  )
+
+totals_df <- df %>%
+  group_by(GenderRank) %>%
+  summarise(total = sum(Value, na.rm = TRUE), .groups = "drop")
+
+ggplot(df, aes(x = GenderRank, y = Value, fill = Metric)) +
+  geom_col(width = 0.75, color = "white", linewidth = 0.3, position = position_stack()) +
+  # segment labels centered in each stacked block
+  geom_text(
+    aes(label = number(Value, accuracy = 0.1)),
+    position = position_stack(vjust = 0.5),
+    size = 3,
+    show.legend = FALSE
+  ) +
+  # total above each stack
+  geom_text(
+    data = totals_df,
+    aes(x = GenderRank, y = total, label = number(total, accuracy = 0.1)),
+    inherit.aes = FALSE,
+    vjust = -0.35,
+    fontface = "bold",
+    size = 3.3
+  ) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.10))) +
+  scale_fill_manual(values = c("cadetblue1", "aquamarine","lightpink","wheat")) +
+  labs(
+    x = NULL,
+    y = "Time per Appointment",
+    fill = "Metric"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    axis.text.x = element_text(angle = 30, hjust = 1),
+    panel.grid.major.x = element_blank()
+  )
+
+```
+
+```
