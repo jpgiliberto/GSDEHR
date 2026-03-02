@@ -180,7 +180,7 @@ AmbTime <- SignalRaw |>
   left_join(key_GSDFaculty) |> 
   select(ID, StartDate, GenderRank, value)
 
-plot_data <- TotalSystemTime %>%
+plot_data <- AmbTime %>%
   filter(!is.na(value) & value <15 ) 
 
 ggplot(plot_data, aes(x = GenderRank, y = value, fill = GenderRank)) +
