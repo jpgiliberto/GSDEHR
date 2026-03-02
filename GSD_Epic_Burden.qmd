@@ -307,7 +307,7 @@ ggplot(df, aes(x = GenderRank, y = Value, fill = Metric)) +
   scale_fill_manual(values = c("cadetblue1", "aquamarine","lightpink","wheat")) +
   labs(
     x = NULL,
-    y = "Time per Appointment",
+    y = "Time per Full Clinic Day",
     fill = "Metric"
   ) +
   theme_minimal(base_size = 12) +
