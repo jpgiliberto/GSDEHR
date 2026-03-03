@@ -336,7 +336,11 @@ HelpDataModel <- HelpDataRaw |>
 
 helpo_glm <- glm(HelpwOrder ~ Rank + Gender, family = binomial,data = HelpDataModel)
 
-result_helpo<- cbind( Category = "Help w Orders", tidy(helpo_glm), confint.lm(helpo_glm))
+result_helpo<- cbind( Category = "Help w Orders", tidy(helpo_glm), confint.lm(helpo_glm)) |> 
+    mutate(OR = exp(estimate),
+         LCL = exp(`2.5 %`),
+         UCL = exp(`97.5 %`)) |> 
+  select(1:2,9:11,6)
 
 result_helpo <- result_helpo %>%
    mutate(
@@ -347,7 +351,6 @@ result_helpo <- result_helpo %>%
   )
 
 outpt_helpo <- result_helpo |> 
-  select(term, OR = estimate, 7:8,p.value) |> 
   gt()
   
 outpt_helpo
